@@ -2,29 +2,28 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
-
+#include <stdlib.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 
-char* getSongFronTitle(char* window_name){
+void getSongFronTitle(unsigned char** window_name){
     int i;
-    char* beatmap_title = window_name;
-    for(i=0; i<strlen(window_name)-8; i++){
-        beatmap_title[i] = window_name[i+8];
+    for(i=0; i<strlen(*window_name)-8; i++){
+        (*window_name)[i] = (*window_name)[i+8];
     }
-    beatmap_title[i] = '\0';
-    return beatmap_title;
+    (*window_name)[i] = '\0';
 }
 
 int main(int argc, char *argv[]){
     Display *display;
     Window focus = 0;
     int revert;
-
-    char* current_window_title = "";
-    char* old_window_title = "";
     char path[PATH_MAX];
-
+    char old_window_title[255];
+    XTextProperty current_window_title;
     FILE* now_playing;
+
+    current_window_title.value = NULL;
 
     if(argc < 2) {
         getcwd(path, sizeof(path));
@@ -39,40 +38,46 @@ int main(int argc, char *argv[]){
     // Wait until osu! window is active
     // WARNING: FOR SOME REASONG IT CAN'T FETCH SOME WINDOW NAMES
     // SO THE BEST WAY IS TO OPEN OSU RIGHT AFTER PROGRAM LAUNCH
-    while(current_window_title == "" ||strstr(current_window_title, "osu!") == NULL){
+    while(current_window_title.value == NULL ||strstr(current_window_title.value, "osu!") == NULL){
         if(!XGetInputFocus(display, &focus, &revert)) continue;
-        if(!XFetchName(display, focus, &current_window_title)){
-            current_window_title=""; 
+        if(!XGetWMName(display, focus, &current_window_title)){
+            strcpy(old_window_title, "");
             continue;
         }    
-        if(current_window_title == NULL) continue;
+        if(current_window_title.value == NULL) continue;
     }
     
     printf("Found osu! window.\n");
 
     while(1){
-        XFetchName(display, focus, &current_window_title);
-        if(current_window_title == NULL || strstr(current_window_title, "osu!") == NULL){
+        XGetWMName(display, focus, &current_window_title);
+        if(current_window_title.value == NULL || strstr(current_window_title.value, "osu!") == NULL){
             continue;
         }
-
-        // If playing beatmap then remove unneeded 'osu! - ' part 
-        if(strcmp(current_window_title, "osu!") != 0){
-            current_window_title = getSongFronTitle(current_window_title);
+        if(strcmp(current_window_title.value, "osu!") != 0){
+            getSongFronTitle(&current_window_title.value);
         }
+
+        // // If playing beatmap then remove unneeded 'osu! - ' part 
 
         // Update the file only if new window title
-        if(strcmp(current_window_title, old_window_title) != 0){
-            printf("Set current_window_name to: %s\n", current_window_title);
+        if(strcmp(current_window_title.value, old_window_title) != 0){
+            printf("Set current_window_name to: %s\n", current_window_title.value);
             now_playing = fopen(path, "w+");
-            if(strcmp(current_window_title, "osu!") == 0){
+
+            if(strcmp(current_window_title.value, "osu!") == 0){
                 fputs("Selecting a song...", now_playing);
             } else {
-                fputs(current_window_title, now_playing);
+                fputs(current_window_title.value, now_playing);
             }
-            old_window_title = current_window_title;
+            int length = strlen(current_window_title.value);
+            strncpy(old_window_title, current_window_title.value, length+1);
+            old_window_title[length]='\0';
+            XFree(current_window_title.value);
+
             fclose(now_playing);
         }
+        usleep(100000);
     }
     return 0;
 }
